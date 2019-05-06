@@ -1,11 +1,14 @@
 // vmmdll.h : header file to include in projects that use vmm.dll either as
 // stand anlone projects or as native plugins to vmm.dll.
 //
-// (c) Ulf Frisk, 2018
+// (c) Ulf Frisk, 2018-2019
 // Author: Ulf Frisk, pcileech@frizk.net
+//
+// Header Version: 2.4
 //
 
 #include <windows.h>
+#include "leechcore.h"
 
 #ifndef __VMMDLL_H__
 #define __VMMDLL_H__
@@ -19,52 +22,25 @@ extern "C" {
 //-----------------------------------------------------------------------------
 
 /*
-* RESERVED FUNCTION! DO NOT USE!
-* Call other VMMDLL_Intialize functions to initialize VMM.DLL and the memory
-* process file system.
+* Initialize VMM.DLL with command line parameters. For a more detailed info
+* about the parameters please see github wiki for Memory Process File System
+* and LeechCore. THIS IS THE PREFERED WAY OF INITIALIZING VMM.DLL
+* Important parameters are:
+*    -printf = show printf style outputs)
+*    -v -vv -vvv = extra verbosity levels)
+*    -device = device as on format for LeechCore - please see leechcore.h or
+*              Github documentation for additional information. Some values
+*              are: <file>, fpga, usb3380, hvsavedstate, totalmeltdown, pmem
+*    -remote = remote LeechCore instance - please see leechcore.h or Github
+*              documentation for additional information.
+*    -norefresh = disable background refreshes (even if backing memory is
+*              volatile memory).
+* -- argc
+* -- argv
+* -- return = success/fail
 */
 _Success_(return)
-BOOL VMMDLL_InitializeReserved(_In_ DWORD argc, _In_ LPSTR argv[]);
-
-/*
-* Initialize VMM.DLL from a memory dump file in raw format. VMM.DLL will be
-* initialized in read-only mode. It's possible to optionally specify the page
-* table base of the windows kernel (for full vmm features) or the page table
-* base of a single 64-bit process in any x64 operating system. NB! usually it
-* is not necessary to specify the PageTableBase - it will be auto-identified
-* most often if the target is Windows.
-* -- szFileName = the file name of the raw memory dump to use.
-* -- szPageTableBaseOpt = optionally the Page Table Base of kernel or process
-*        as hex string. NB! this is usally not required. Example: "0x1ab000".
-* -- return = success/fail.
-*/
-_Success_(return)
-BOOL VMMDLL_InitializeFile(_In_ LPSTR szFileName, _In_opt_ LPSTR szPageTableBaseOpt);
-
-/*
-* Intiailize VMM.DLL from a supported FPGA device over USB. VMM.DLL will be
-* initialized in read/write mode upon success. Optionally it will be possible
-* to specify the max physical address and the page table base of the kernel or
-* process that should be investigated.
-* NB! Requires pcileech.dll to be placed in the same directory as vmm.dll.
-* -- szMaxPhysicalAddressOpt = max physical address of the target system as a
-*        hex string. Example: "0x8000000000". If zero value is given the max
-*        address will be auto-identified.
-* -- szPageTableBaseOpt = optionally the Page Table Base of kernel or process
-*        as hex string. NB! this is usally not required. Example: "0x1ab000".
-* -- return = success/fail.
-*/
-_Success_(return)
-BOOL VMMDLL_InitializeFPGA(_In_opt_ LPSTR szMaxPhysicalAddressOpt, _In_opt_ LPSTR szPageTableBaseOpt);
-
-/*
-* Initialize VMM.DLL from a the "Total Meltdown" CVE-2018-1038 vulnerability.
-* NB! Requires pcileech.dll to be placed in the same directory as vmm.dll.
-* initialized in read/write mode upon success.
-* -- return = success/fail.
-*/
-_Success_(return)
-BOOL VMMDLL_InitializeTotalMeltdown();
+BOOL VMMDLL_Initialize(_In_ DWORD argc, _In_ LPSTR argv[]);
 
 /*
 * Close an initialized instance of VMM.DLL and clean up all allocated resources
@@ -74,6 +50,17 @@ BOOL VMMDLL_InitializeTotalMeltdown();
 _Success_(return)
 BOOL VMMDLL_Close();
 
+/*
+* Perform a force refresh of all internal caches including:
+* - process listings
+* - memory cache
+* - page table cache
+* WARNING: function may take some time to execute!
+* -- dwReserved = reserved future use - must be zero
+* -- return = sucess/fail
+*/
+_Success_(return)
+BOOL VMMDLL_Refresh(_In_ DWORD dwReserved);
 
 
 //-----------------------------------------------------------------------------
@@ -84,43 +71,29 @@ BOOL VMMDLL_Close();
 
 /*
 * Options used together with the functions: VMMDLL_GetOption & VMMDLL_SetOption
-* If VMM.DLL is chained with PCILEECH.DLL then required values will be passed
-* along to PCILEECH.DLL when necessary.
+* Options are defined with either: VMMDLL_OPT_* in this header file or as
+* MEMDEVICE_OPT_* in memdevice.h
 * For more detailed information check the sources for individual device types.
 */
-#define VMMDLL_OPT_DEVICE_FPGA_PROBE_MAXPAGES          0x01        // RW
-#define VMMDLL_OPT_DEVICE_FPGA_RX_FLUSH_LIMIT          0x02        // RW
-#define VMMDLL_OPT_DEVICE_FPGA_MAX_SIZE_RX             0x03        // RW
-#define VMMDLL_OPT_DEVICE_FPGA_MAX_SIZE_TX             0x04        // RW
-#define VMMDLL_OPT_DEVICE_FPGA_DELAY_PROBE_READ        0x05        // RW - uS
-#define VMMDLL_OPT_DEVICE_FPGA_DELAY_PROBE_WRITE       0x06        // RW - uS
-#define VMMDLL_OPT_DEVICE_FPGA_DELAY_WRITE             0x07        // RW - uS
-#define VMMDLL_OPT_DEVICE_FPGA_DELAY_READ              0x08        // RW - uS
-#define VMMDLL_OPT_DEVICE_FPGA_RETRY_ON_ERROR          0x09        // RW
-#define VMMDLL_OPT_DEVICE_FPGA_DEVICE_ID               0x80        // R
-#define VMMDLL_OPT_DEVICE_FPGA_FPGA_ID                 0x81        // R
-#define VMMDLL_OPT_DEVICE_FPGA_VERSION_MAJOR           0x82        // R
-#define VMMDLL_OPT_DEVICE_FPGA_VERSION_MINOR           0x83        // R
+#define VMMDLL_OPT_CORE_PRINTF_ENABLE                   0x80000001  // RW
+#define VMMDLL_OPT_CORE_VERBOSE                         0x80000002  // RW
+#define VMMDLL_OPT_CORE_VERBOSE_EXTRA                   0x80000003  // RW
+#define VMMDLL_OPT_CORE_VERBOSE_EXTRA_TLP               0x80000004  // RW
+#define VMMDLL_OPT_CORE_MAX_NATIVE_ADDRESS              0x80000005  // R
+#define VMMDLL_OPT_CORE_MAX_NATIVE_IOSIZE               0x80000006  // R
+#define VMMDLL_OPT_CORE_SYSTEM                          0x80000007  // R
+#define VMMDLL_OPT_CORE_MEMORYMODEL                     0x80000008  // R
 
-#define VMMDLL_OPT_CORE_PRINTF_ENABLE                  0x80000001  // RW
-#define VMMDLL_OPT_CORE_VERBOSE                        0x80000002  // RW
-#define VMMDLL_OPT_CORE_VERBOSE_EXTRA                  0x80000003  // RW
-#define VMMDLL_OPT_CORE_VERBOSE_EXTRA_TLP              0x80000004  // RW
-#define VMMDLL_OPT_CORE_MAX_NATIVE_ADDRESS             0x80000005  // R
-#define VMMDLL_OPT_CORE_MAX_NATIVE_IOSIZE              0x80000006  // R
-#define VMMDLL_OPT_CORE_SYSTEM                         0x80000007  // R
-#define VMMDLL_OPT_CORE_MEMORYMODEL                    0x80000008  // R
-
-#define VMMDLL_OPT_CONFIG_IS_REFRESH_ENABLED           0x40000001  // R - 1/0
-#define VMMDLL_OPT_CONFIG_TICK_PERIOD                  0x40000002  // RW - base tick period in ms
-#define VMMDLL_OPT_CONFIG_READCACHE_TICKS              0x40000003  // RW - memory cache validity period (in ticks)
-#define VMMDLL_OPT_CONFIG_TLBCACHE_TICKS               0x40000004  // RW - page table (tlb) cache validity period (in ticks)
-#define VMMDLL_OPT_CONFIG_PROCCACHE_TICKS_PARTIAL      0x40000005  // RW - process refresh (partial) period (in ticks)
-#define VMMDLL_OPT_CONFIG_PROCCACHE_TICKS_TOTAL        0x40000006  // RW - process refresh (full) period (in ticks)
-#define VMMDLL_OPT_CONFIG_VMM_VERSION_MAJOR            0x40000007  // R
-#define VMMDLL_OPT_CONFIG_VMM_VERSION_MINOR            0x40000008  // R
-#define VMMDLL_OPT_CONFIG_VMM_VERSION_REVISION         0x40000009  // R
-#define VMMDLL_OPT_CONFIG_STATISTICS_FUNCTIONCALL      0x4000000A  // RW - enable function call statistics (.status/statistics_fncall file)
+#define VMMDLL_OPT_CONFIG_IS_REFRESH_ENABLED            0x40000001  // R - 1/0
+#define VMMDLL_OPT_CONFIG_TICK_PERIOD                   0x40000002  // RW - base tick period in ms
+#define VMMDLL_OPT_CONFIG_READCACHE_TICKS               0x40000003  // RW - memory cache validity period (in ticks)
+#define VMMDLL_OPT_CONFIG_TLBCACHE_TICKS                0x40000004  // RW - page table (tlb) cache validity period (in ticks)
+#define VMMDLL_OPT_CONFIG_PROCCACHE_TICKS_PARTIAL       0x40000005  // RW - process refresh (partial) period (in ticks)
+#define VMMDLL_OPT_CONFIG_PROCCACHE_TICKS_TOTAL         0x40000006  // RW - process refresh (full) period (in ticks)
+#define VMMDLL_OPT_CONFIG_VMM_VERSION_MAJOR             0x40000007  // R
+#define VMMDLL_OPT_CONFIG_VMM_VERSION_MINOR             0x40000008  // R
+#define VMMDLL_OPT_CONFIG_VMM_VERSION_REVISION          0x40000009  // R
+#define VMMDLL_OPT_CONFIG_STATISTICS_FUNCTIONCALL       0x4000000A  // RW - enable function call statistics (.status/statistics_fncall file)
 
 static const LPSTR VMMDLL_MEMORYMODEL_TOSTRING[4] = { "N/A", "X86", "X86PAE", "X64" };
 
@@ -256,19 +229,18 @@ _Success_(return)
 BOOL VMMDLL_VfsInitializePlugins();
 
 #define VMMDLL_PLUGIN_CONTEXT_MAGIC             0xc0ffee663df9301c
-#define VMMDLL_PLUGIN_CONTEXT_VERSION           1
+#define VMMDLL_PLUGIN_CONTEXT_VERSION           2
 #define VMMDLL_PLUGIN_REGINFO_MAGIC             0xc0ffee663df9301d
-#define VMMDLL_PLUGIN_REGINFO_VERSION           2
+#define VMMDLL_PLUGIN_REGINFO_VERSION           3
 
 #define VMMDLL_PLUGIN_EVENT_VERBOSITYCHANGE     0x01
+#define VMMDLL_PLUGIN_EVENT_TOTALREFRESH        0x02
 
 typedef struct tdVMMDLL_PLUGIN_CONTEXT {
     ULONG64 magic;
     WORD wVersion;
     WORD wSize;
     DWORD dwPID;
-    PHANDLE phModulePrivate;
-    PHANDLE phProcessPrivate;
     PVOID pProcess;
     LPSTR szModule;
     LPSTR szPath;
@@ -283,13 +255,12 @@ typedef struct tdVMMDLL_PLUGIN_REGINFO {
     VMMDLL_MEMORYMODEL_TP tpMemoryModel;
     VMMDLL_SYSTEM_TP tpSystem;
     HMODULE hDLL;
-    HMODULE hReservedDll;   // not for general use (only used for python).
+    HMODULE hReservedDllPython3X;   // not for general use (only used for python).
     BOOL(*pfnPluginManager_Register)(struct tdVMMDLL_PLUGIN_REGINFO *pPluginRegInfo);
-    PVOID pvReserved1;
+    HMODULE hReservedDllPython3;   // not for general use (only used for python).
     PVOID pvReserved2;
     // general plugin registration info to be filled out by the plugin below:
     struct {
-        HANDLE hModulePrivate;
         CHAR szModuleName[32];
         BOOL fRootModule;
         BOOL fProcessModule;
@@ -301,9 +272,8 @@ typedef struct tdVMMDLL_PLUGIN_REGINFO {
         BOOL(*pfnList)(_In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Inout_ PHANDLE pFileList);
         NTSTATUS(*pfnRead)(_In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Out_ LPVOID pb, _In_ DWORD cb, _Out_ PDWORD pcbRead,  _In_ ULONG64 cbOffset);
         NTSTATUS(*pfnWrite)(_In_ PVMMDLL_PLUGIN_CONTEXT ctx, _In_ LPVOID pb, _In_ DWORD cb, _Out_ PDWORD pcbWrite, _In_ ULONG64 cbOffset);
-        VOID(*pfnNotify)(_Inout_opt_ PHANDLE phModulePrivate, _In_ DWORD fEvent, _In_opt_ PVOID pvEvent, _In_opt_ DWORD cbEvent);
-        VOID(*pfnCloseHandleModule)(_Inout_opt_ PHANDLE phModulePrivate);
-        VOID(*pfnCloseHandleProcess)(_Inout_opt_ PHANDLE phModulePrivate, _Inout_ PHANDLE phProcessPrivate);
+        VOID(*pfnNotify)(_In_ DWORD fEvent, _In_opt_ PVOID pvEvent, _In_opt_ DWORD cbEvent);
+        VOID(*pfnClose)();
         PVOID pvReserved1;
         PVOID pvReserved2;
     } reg_fn;
@@ -322,26 +292,7 @@ typedef struct tdVMMDLL_PLUGIN_REGINFO {
 // Cached page tables (used for translating virtual2physical) are still used.
 #define VMMDLL_FLAG_NOCACHE                        0x0001  // do not use the data cache (force reading from memory acquisition device)
 #define VMMDLL_FLAG_ZEROPAD_ON_FAIL                0x0002  // zero pad failed physical memory reads and report success if read within range of physical memory.
-
-#define VMMDLL_MEM_IO_SCATTER_HEADER_VERSION   2
-
-typedef struct tdVMMDLL_MEM_IO_SCATTER_HEADER {
-    ULONG64 qwA;            // base address (DWORD boundry).
-    DWORD cbMax;            // bytes to read (DWORD boundry, max 0x1000); pbResult must have room for this.
-    DWORD cb;               // bytes read into result buffer.
-    PBYTE pb;               // ptr to 0x1000 sized buffer to receive read bytes.
-    PVOID pvReserved1;      // reserved for use by caller.
-    PVOID pvReserved2;      // reserved for use by caller.
-    WORD version;           // version of struct 
-    WORD Future1;           // reserved for future use.
-    DWORD Future2;          // reserved for future use.
-    ULONG64 qwDeviceA;      // device-physical address (used by device layer).
-    struct {
-        PVOID pvReserved1;
-        PVOID pvReserved2;
-        BYTE pbReserved[32];
-    } sReserved;            // reserved for future use.
-} VMMDLL_MEM_IO_SCATTER_HEADER, *PVMMDLL_MEM_IO_SCATTER_HEADER, **PPVMMDLL_MEM_IO_SCATTER_HEADER;
+#define VMMDLL_FLAG_FORCECACHE_READ                0x0008  // force use of cache - fail non-cached pages - only valid for reads, invalid with VMM_FLAG_NOCACHE/VMM_FLAG_ZEROPAD_ON_FAIL.
 
 /*
 * Read memory in various non-contigious locations specified by the pointers to
@@ -353,10 +304,10 @@ typedef struct tdVMMDLL_MEM_IO_SCATTER_HEADER {
 * -- ppMEMs = array of scatter read headers.
 * -- cpMEMs = count of ppDMAs.
 * -- pcpDMAsRead = optional count of number of successfully read ppDMAs.
-* -- flags = optional flags as given by VMM_FLAG_*
+* -- flags = optional flags as given by VMMDLL_FLAG_*
 * -- return = the number of successfully read items.
 */
-DWORD VMMDLL_MemReadScatter(_In_ DWORD dwPID, _Inout_ PPVMMDLL_MEM_IO_SCATTER_HEADER ppMEMs, _In_ DWORD cpMEMs, _In_ DWORD flags);
+DWORD VMMDLL_MemReadScatter(_In_ DWORD dwPID, _Inout_ PPMEM_IO_SCATTER_HEADER ppMEMs, _In_ DWORD cpMEMs, _In_ DWORD flags);
 
 /*
 * Read a single 4096-byte page of memory.
@@ -386,12 +337,24 @@ BOOL VMMDLL_MemRead(_In_ DWORD dwPID, _In_ ULONG64 qwVA, _Out_ PBYTE pb, _In_ DW
 * -- pb
 * -- cb
 * -- pcbRead
-* -- flags = flags as in VMM_FLAG_*
+* -- flags = flags as in VMMDLL_FLAG_*
 * -- return = success/fail. NB! reads may report as success even if 0 bytes are
 *        read - it's recommended to verify pcbReadOpt parameter.
 */
 _Success_(return)
 BOOL VMMDLL_MemReadEx(_In_ DWORD dwPID, _In_ ULONG64 qwVA, _Out_ PBYTE pb, _In_ DWORD cb, _Out_opt_ PDWORD pcbReadOpt, _In_ ULONG64 flags);
+
+/*
+* Prefetch a number of addresses (specified in the pA array) into the memory
+* cache. This function is to be used to batch larger known reads into local
+* cache before making multiple smaller reads - which will then happen from
+* the cache. Function exists for performance reasons.
+* -- dwPID = PID of target process, (DWORD)-1 for physical memory.
+* -- pPrefetchAddresses = array of addresses to read into cache.
+* -- cPrefetchAddresses
+*/
+_Success_(return)
+BOOL VMMDLL_MemPrefetchPages(_In_ DWORD dwPID, _In_reads_(cPrefetchAddresses) PULONG64 pPrefetchAddresses, _In_ DWORD cPrefetchAddresses);
 
 /*
 * Write a contigious arbitrary amount of memory. Please note some virtual memory
@@ -591,6 +554,87 @@ BOOL VMMDLL_ProcessGetEAT(_In_ DWORD dwPID, _In_ LPSTR szModule, _Out_opt_ PVMMD
 _Success_(return)
 BOOL VMMDLL_ProcessGetIAT(_In_ DWORD dwPID, _In_ LPSTR szModule, _Out_opt_ PVMMDLL_IAT_ENTRY pData, _In_ DWORD cData, _Out_ PDWORD pcData);
 
+/*
+* Retrieve the virtual address of a given function inside a process/module.
+* -- dwPID
+* -- szModuleName
+* -- szFunctionName
+* -- return = virtual address of function, zero on fail.
+*/
+ULONG64 VMMDLL_ProcessGetProcAddress(_In_ DWORD dwPID, _In_ LPSTR szModuleName, _In_ LPSTR szFunctionName);
+
+/*
+* Retrieve the base address of a given module.
+* -- dwPID
+* -- szModuleName
+* -- return = virtual address of module base, zero on fail.
+*/
+ULONG64 VMMDLL_ProcessGetModuleBase(_In_ DWORD dwPID, _In_ LPSTR szModuleName);
+
+
+
+//-----------------------------------------------------------------------------
+// WINDOWS SPECIFIC UTILITY FUNCTIONS BELOW:
+//-----------------------------------------------------------------------------
+
+typedef struct tdVMMDLL_WIN_THUNKINFO_IAT {
+    BOOL fValid;
+    BOOL f32;               // if TRUE fn is a 32-bit/4-byte entry, otherwise 64-bit/8-byte entry.
+    ULONG64 vaThunk;        // address of import address table 'thunk'.
+    ULONG64 vaFunction;     // value if import address table 'thunk' == address of imported function.
+    ULONG64 vaNameModule;   // address of name string for imported module.
+    ULONG64 vaNameFunction; // address of name string for imported function.
+} VMMDLL_WIN_THUNKINFO_IAT, *PVMMDLL_WIN_THUNKINFO_IAT;
+
+typedef struct tdVMMDLL_WIN_THUNKINFO_EAT {
+    BOOL fValid;
+    DWORD valueThunk;       // value of export address table 'thunk'.
+    ULONG64 vaThunk;        // address of import address table 'thunk'.
+    ULONG64 vaNameFunction; // address of name string for exported function.
+    ULONG64 vaFunction;     // address of exported function (module base + value parameter).
+} VMMDLL_WIN_THUNKINFO_EAT, *PVMMDLL_WIN_THUNKINFO_EAT;
+
+/*
+* Retrieve information about the import address table IAT thunk for an imported
+* function. This includes the virtual address of the IAT thunk which is useful
+* for hooking.
+* -- dwPID
+* -- szModuleName
+* -- szImportModuleName
+* -- szImportFunctionName
+* -- pThunkIAT
+* -- return
+*/
+_Success_(return)
+BOOL VMMDLL_WinGetThunkInfoIAT(_In_ DWORD dwPID, _In_ LPSTR szModuleName, _In_ LPSTR szImportModuleName, _In_ LPSTR szImportFunctionName, _Out_ PVMMDLL_WIN_THUNKINFO_IAT pThunkInfoIAT);
+
+/*
+* Retrieve information about the export address table EAT thunk for an exported
+* function. This includes the virtual address of the EAT thunk which is useful
+* for hooking.
+* -- dwPID
+* -- szModuleName
+* -- pThunkEAT
+* -- return
+*/
+_Success_(return)
+BOOL VMMDLL_WinGetThunkInfoEAT(_In_ DWORD dwPID, _In_ LPSTR szModuleName, _In_ LPSTR szExportFunctionName, _Out_ PVMMDLL_WIN_THUNKINFO_EAT pThunkInfoEAT);
+
+/*
+* Decompress compressed memory page stored in the MemCompression process.
+* -- vaCompressedData = virtual address in 'MemCompression' to decompress.
+* -- cbCompressedData = length of compressed data in 'MemCompression' to decompress (or zero for auto-detect).
+* -- pbDecompressedPage
+* -- pcbCompressedData = optional ptr to receive length of compressed buffer.
+* -- return
+*/
+_Success_(return)
+BOOL VMMDLL_WinMemCompression_DecompressPage(
+    _In_ ULONG64 vaCompressedData,
+    _In_opt_ DWORD cbCompressedData,
+    _Out_writes_(4096) PBYTE pbDecompressedPage,
+    _Out_opt_ PDWORD pcbCompressedData
+);
 
 
 //-----------------------------------------------------------------------------

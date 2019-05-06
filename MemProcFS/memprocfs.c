@@ -33,6 +33,49 @@ CHAR GetMountPoint(_In_ DWORD argc, _In_ char* argv[])
 }
 
 /*
+* Call the VMMDLL_Close() function in a separate newly create thread.
+* This will allow the main thread to exit even if the VMMDLL_Close()
+* function should happen to get stuck.
+* -- pv
+*/
+VOID MemProcFsCtrlHandler_TryShutdownThread(PVOID pv)
+{
+	HMODULE hModuleVmm;
+	BOOL(*VMMDLL_Close)();
+	__try {
+		hModuleVmm = GetModuleHandleA("vmm.dll");
+		if(hModuleVmm) {
+			VMMDLL_Close = (BOOL(*)())GetProcAddress(hModuleVmm, "VMMDLL_Close");
+			if(VMMDLL_Close) {
+				VMMDLL_Close();
+			}
+		}
+	}
+	__except(EXCEPTION_EXECUTE_HANDLER) { ; }
+}
+
+/*
+* SetConsoleCtrlHandler for the MemProcFS - clean up whenever CTRL+C is pressed.
+* If this is not here MemProcFS might not exit otherwise if there are lingering
+* threads most notably in the Python plugin functionality.
+* -- fdwCtrlType
+* -- return
+*/
+BOOL WINAPI MemProcFsCtrlHandler(DWORD fdwCtrlType)
+{
+	if (fdwCtrlType == CTRL_C_EVENT) {
+		printf("CTRL+C detected - shutting down ...\n");
+		CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)MemProcFsCtrlHandler_TryShutdownThread, NULL, 0, NULL);
+		Sleep(500);
+		TerminateProcess(GetCurrentProcess(), 1);
+		Sleep(1000);
+		ExitProcess(1);
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/*
 * Main entry point of the memory process file system. The main function will
 * load and initialize VMM.DLL then initialize the VMM.DLL plugin manager and
 * then hand over control to vfs.c!VfsInitializeAndMount which will start the
@@ -45,33 +88,29 @@ CHAR GetMountPoint(_In_ DWORD argc, _In_ char* argv[])
 */
 int main(_In_ int argc, _In_ char* argv[])
 {
-    // DEBUG STUFF BELOW:
-    //LPSTR szTMP[] = { "", "-device", "fpga" };
-    //LPSTR szTMP[] = { "", "-device", "c:\\temp\\WIN10-16299-248-1.pmem", "-v" };
-    //argv = szTMP;
-    //argc = sizeof(szTMP) / sizeof(LPSTR);
     // MAIN FUNCTION PROPER BELOW:
     BOOL result;
     HMODULE hVMM;
     VMMDLL_FUNCTIONS VmmDll;
+    LoadLibraryA("leechcore.dll");
     hVMM = LoadLibraryExA("vmm.dll", NULL, LOAD_LIBRARY_SEARCH_APPLICATION_DIR);
     if(!hVMM) {
         printf("MemProcFS: Error loading vmm.dll - ensure vmm.dll resides in the memprocfs.exe application directory!\n");
         return 1;
     }
-    VmmDll.InitializeReserved = (BOOL(*)(DWORD, LPSTR*))GetProcAddress(hVMM, "VMMDLL_InitializeReserved");
+    VmmDll.Initialize = (BOOL(*)(DWORD, LPSTR*))GetProcAddress(hVMM, "VMMDLL_Initialize");
     VmmDll.ConfigGet = (BOOL(*)(ULONG64, PULONG64))GetProcAddress(hVMM, "VMMDLL_ConfigGet");
     VmmDll.ConfigSet = (BOOL(*)(ULONG64, ULONG64))GetProcAddress(hVMM, "VMMDLL_ConfigSet");
     VmmDll.VfsList = (BOOL(*)(LPCWSTR, PVMMDLL_VFS_FILELIST))GetProcAddress(hVMM, "VMMDLL_VfsList");
     VmmDll.VfsRead = (DWORD(*)(LPCWSTR, LPVOID, DWORD, PDWORD, ULONG64))GetProcAddress(hVMM, "VMMDLL_VfsRead");
     VmmDll.VfsWrite = (DWORD(*)(LPCWSTR, LPVOID, DWORD, PDWORD, ULONG64))GetProcAddress(hVMM, "VMMDLL_VfsWrite");
     VmmDll.VfsInitializePlugins = (BOOL(*)())GetProcAddress(hVMM, "VMMDLL_VfsInitializePlugins");
-    if(!VmmDll.InitializeReserved || !VmmDll.ConfigGet || !VmmDll.VfsList || !VmmDll.VfsRead || !VmmDll.VfsWrite || !VmmDll.VfsInitializePlugins) {
+    if(!VmmDll.Initialize || !VmmDll.ConfigGet || !VmmDll.VfsList || !VmmDll.VfsRead || !VmmDll.VfsWrite || !VmmDll.VfsInitializePlugins) {
         printf("MemProcFS: Error loading vmm.dll - invalid version of vmm.dll found!\n");
         return 1;
     }
-    argv[0] = "-vdll";
-    result = VmmDll.InitializeReserved(argc, argv);
+    argv[0] = "-printf";
+    result = VmmDll.Initialize(argc, argv);
     if(!result) {
         // any error message will already be shown by the InitializeReserved function.
         return 1;
@@ -82,6 +121,7 @@ int main(_In_ int argc, _In_ char* argv[])
         printf("MemProcFS: Error file system plugins in vmm.dll!\n");
         return 1;
     }
+	SetConsoleCtrlHandler(MemProcFsCtrlHandler, TRUE);
     VfsInitializeAndMount(GetMountPoint(argc, argv), &VmmDll);
     ExitProcess(0);
     return 0;

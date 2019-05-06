@@ -18,7 +18,7 @@
 // Ensure only one is active below at one single time!
 // INITIALIZE_FROM_FILE contains file name to a raw memory dump.
 // ----------------------------------------------------------------------------
-#define _INITIALIZE_FROM_FILE    "z:\\media\\vm\\memdump\\WIN10-17134-48-1.raw"
+#define _INITIALIZE_FROM_FILE    "c:\\temp\\win10.raw"
 //#define _INITIALIZE_FROM_FPGA
 //#define _INITIALIZE_FROM_TOTALMELTDOWN
 
@@ -64,6 +64,8 @@ int main(_In_ int argc, _In_ char* argv[])
     BOOL result;
     NTSTATUS nt;
     DWORD i, dwPID;
+    DWORD dw = 0;
+    QWORD va;
     BYTE pbPage1[0x1000], pbPage2[0x1000];
 
 #ifdef _INITIALIZE_FROM_FILE
@@ -72,7 +74,7 @@ int main(_In_ int argc, _In_ char* argv[])
     printf("#01: Initialize from file:                                  \n");
     ShowKeyPress();
     printf("CALL:    VMMDLL_InitializeFile\n");
-    result = VMMDLL_InitializeFile(_INITIALIZE_FROM_FILE, NULL);
+    result = VMMDLL_Initialize(3, (LPSTR[]){ "", "-device", _INITIALIZE_FROM_FILE });
     if(result) {
         printf("SUCCESS: VMMDLL_InitializeFile\n");
     } else {
@@ -86,12 +88,12 @@ int main(_In_ int argc, _In_ char* argv[])
     printf("------------------------------------------------------------\n");
     printf("#01: Initialize from TotalMeltdown:                         \n");
     ShowKeyPress();
-    printf("CALL:    VMMDLL_InitializeTotalMeltdown\n");
-    result = VMMDLL_InitializeTotalMeltdown();
+    printf("CALL:    VMMDLL_Initialize\n");
+    result = result = VMMDLL_Initialize(3, (LPSTR[]) { "", "-device", "totalmeltdown" });
     if(result) {
-        printf("SUCCESS: VMMDLL_InitializeTotalMeltdown\n");
+        printf("SUCCESS: VMMDLL_Initialize\n");
     } else {
-        printf("FAIL:    VMMDLL_InitializeTotalMeltdown\n");
+        printf("FAIL:    VMMDLL_Initialize\n");
         return 1;
     }
 #endif /* _INITIALIZE_FROM_TOTALMELTDOWN */
@@ -101,12 +103,12 @@ int main(_In_ int argc, _In_ char* argv[])
     printf("------------------------------------------------------------\n");
     printf("#01: Initialize from FPGA:                                  \n");
     ShowKeyPress();
-    printf("CALL:    VMMDLL_InitializeFPGA\n");
-    result = VMMDLL_InitializeFPGA(NULL, NULL);
+    printf("CALL:    VMMDLL_Initialize\n");
+    result = VMMDLL_Initialize(3, (LPSTR[]) { "", "-device", "fpga" });
     if(result) {
-        printf("SUCCESS: VMMDLL_InitializeFPGA\n");
+        printf("SUCCESS: VMMDLL_Initialize\n");
     } else {
-        printf("FAIL:    VMMDLL_InitializeFPGA\n");
+        printf("FAIL:    VMMDLL_Initialize\n");
         return 1;
     }
     // Retrieve the ID of the FPPA (SP605/PCIeScreamer/AC701 ...) and the bitstream version
@@ -299,17 +301,17 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
-    // Retrieve the module of crypt32.dll by its name. Note it is also possible
+    // Retrieve the module of kernel32.dll by its name. Note it is also possible
     // to retrieve it by retrieving the complete module map (list) and iterate
     // over it. But if the name of the module is known this is more convenient.
     // This required that the PEB and LDR list in-process haven't been tampered
     // with ...
     printf("------------------------------------------------------------\n");
-    printf("#07: Get by name 'crypt32.dll' in 'explorer.exe'.           \n");
+    printf("#07: Get by name 'kernel32.dll' in 'explorer.exe'.          \n");
     ShowKeyPress();
     VMMDLL_MODULEMAP_ENTRY ModuleEntry;
     printf("CALL:    VMMDLL_ProcessGetModuleFromName\n");
-    result = VMMDLL_ProcessGetModuleFromName(dwPID, "crypt32.dll", &ModuleEntry);
+    result = VMMDLL_ProcessGetModuleFromName(dwPID, "kernel32.dll", &ModuleEntry);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetModuleFromName\n");
         printf("         MODULE_NAME                                 BASE             SIZE     ENTRY\n");
@@ -328,12 +330,12 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
-    // Retrieve the memory at the base of crypt32.dll previously fetched and
+    // Retrieve the memory at the base of kernel32.dll previously fetched and
     // display the first 0x200 bytes of it. This read is fetched from the cache
     // by default (if possible). If reads should be forced from the DMA device
     // please specify the flag: VMM_FLAG_NOCACHE
     printf("------------------------------------------------------------\n");
-    printf("#08: Read 0x200 bytes of 'crypt32.dll' in 'explorer.exe'.   \n");
+    printf("#08: Read 0x200 bytes of 'kernel32.dll' in 'explorer.exe'.  \n");
     ShowKeyPress();
     DWORD cRead;
     printf("CALL:    VMMDLL_MemReadEx\n");
@@ -348,14 +350,14 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
-    // List the sections from the module of crypt32.dll.
+    // List the sections from the module of kernel32.dll.
     printf("------------------------------------------------------------\n");
-    printf("#09: List sections of 'crypt32.dll' in 'explorer.exe'.      \n");
+    printf("#09: List sections of 'kernel32.dll' in 'explorer.exe'.     \n");
     ShowKeyPress();
     DWORD cSections;
     PIMAGE_SECTION_HEADER pSectionHeaders;
     printf("CALL:    VMMDLL_ProcessGetSections #1\n");
-    result = VMMDLL_ProcessGetSections(dwPID, "crypt32.dll", NULL, 0, &cSections);
+    result = VMMDLL_ProcessGetSections(dwPID, "kernel32.dll", NULL, 0, &cSections);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetSections #1\n");
         printf("         Count = %lli\n", cModules);
@@ -369,7 +371,7 @@ int main(_In_ int argc, _In_ char* argv[])
         return 1;
     }
     printf("CALL:    VMMDLL_ProcessGetSections #2\n");
-    result = VMMDLL_ProcessGetSections(dwPID, "crypt32.dll", pSectionHeaders, cSections, &cSections);
+    result = VMMDLL_ProcessGetSections(dwPID, "kernel32.dll", pSectionHeaders, cSections, &cSections);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetSections #2\n");
         printf("         #  NAME     OFFSET   SIZE     RWX\n");
@@ -392,17 +394,17 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
-    // Retrieve and display the data directories of crypt32.dll. The number of
+    // Retrieve and display the data directories of kernel32.dll. The number of
     // data directories in a PE is always 16 - so this can be used to simplify
     // calling the functionality somewhat.
     printf("------------------------------------------------------------\n");
-    printf("#10: List directories of 'crypt32.dll' in 'explorer.exe'.   \n");
+    printf("#10: List directories of 'kernel32.dll' in 'explorer.exe'.  \n");
     ShowKeyPress();
     LPCSTR DIRECTORIES[16] = { "EXPORT", "IMPORT", "RESOURCE", "EXCEPTION", "SECURITY", "BASERELOC", "DEBUG", "ARCHITECTURE", "GLOBALPTR", "TLS", "LOAD_CONFIG", "BOUND_IMPORT", "IAT", "DELAY_IMPORT", "COM_DESCRIPTOR", "RESERVED" };
     DWORD cDirectories;
     IMAGE_DATA_DIRECTORY pDirectories[16];
     printf("CALL:    VMMDLL_ProcessGetDirectories\n");
-    result = VMMDLL_ProcessGetDirectories(dwPID, "crypt32.dll", pDirectories, 16, &cDirectories);
+    result = VMMDLL_ProcessGetDirectories(dwPID, "kernel32.dll", pDirectories, 16, &cDirectories);
     if(result) {
         printf("SUCCESS: PCIleech_VmmProcess_GetDirectories\n");
         printf("         #  NAME             OFFSET   SIZE\n");
@@ -422,14 +424,14 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
-    // Retrieve the export address table (EAT) of crypt32.dll
+    // Retrieve the export address table (EAT) of kernel32.dll
     printf("------------------------------------------------------------\n");
-    printf("#11: exports of 'crypt32.dll' in 'explorer.exe'.            \n");
+    printf("#11: exports of 'kernel32.dll' in 'explorer.exe'.           \n");
     ShowKeyPress();
     DWORD cEATs;
     PVMMDLL_EAT_ENTRY pEATs;
     printf("CALL:    VMMDLL_ProcessGetEAT #1\n");
-    result = VMMDLL_ProcessGetEAT(dwPID, "crypt32.dll", NULL, 0, &cEATs);
+    result = VMMDLL_ProcessGetEAT(dwPID, "kernel32.dll", NULL, 0, &cEATs);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetEAT #1\n");
         printf("         Count = %i\n", cEATs);
@@ -443,7 +445,7 @@ int main(_In_ int argc, _In_ char* argv[])
         return 1;
     }
     printf("CALL:    VMMDLL_ProcessGetEAT #2\n");
-    result = VMMDLL_ProcessGetEAT(dwPID, "crypt32.dll", pEATs, cEATs, &cEATs);
+    result = VMMDLL_ProcessGetEAT(dwPID, "kernel32.dll", pEATs, cEATs, &cEATs);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetEAT #2\n");
         printf("         #    OFFSET   NAME\n");
@@ -462,14 +464,14 @@ int main(_In_ int argc, _In_ char* argv[])
     }
 
 
-    // Retrieve the import address table (IAT) of crypt32.dll
+    // Retrieve the import address table (IAT) of kernel32.dll
     printf("------------------------------------------------------------\n");
-    printf("#12: imports of 'crypt32.dll' in 'explorer.exe'.            \n");
+    printf("#12: imports of 'kernel32.dll' in 'explorer.exe'.           \n");
     ShowKeyPress();
     DWORD cIATs;
     PVMMDLL_IAT_ENTRY pIATs;
     printf("CALL:    VMMDLL_ProcessGetIAT #1\n");
-    result = VMMDLL_ProcessGetIAT(dwPID, "crypt32.dll", NULL, 0, &cIATs);
+    result = VMMDLL_ProcessGetIAT(dwPID, "kernel32.dll", NULL, 0, &cIATs);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetIAT #1\n");
         printf("         Count = %i\n", cIATs);
@@ -483,7 +485,7 @@ int main(_In_ int argc, _In_ char* argv[])
         return 1;
     }
     printf("CALL:    VMMDLL_ProcessGetIAT #2\n");
-    result = VMMDLL_ProcessGetIAT(dwPID, "crypt32.dll", pIATs, cIATs, &cIATs);
+    result = VMMDLL_ProcessGetIAT(dwPID, "kernel32.dll", pIATs, cIATs, &cIATs);
     if(result) {
         printf("SUCCESS: VMMDLL_ProcessGetIAT #2\n");
         printf("         #    VIRTUAL_ADDRESS    MODULE!NAME\n");
@@ -570,6 +572,78 @@ int main(_In_ int argc, _In_ char* argv[])
         printf("FAIL:    VMMDLL_VfsRead\n");
         return 1;
     }
+
+
+    // Get base virtual address of ntoskrnl.exe
+    printf("------------------------------------------------------------\n");
+    printf("#17: get ntoskrnl.exe base virtual address                  \n");
+    ShowKeyPress();
+    printf("CALL:    VMMDLL_ProcessGetModuleBase\n");
+    va = VMMDLL_ProcessGetModuleBase(4, "ntoskrnl.exe");
+    if(va) {
+        printf("SUCCESS: VMMDLL_ProcessGetModuleBase\n");
+        printf("         %s = %016llx\n", "ntoskrnl.exe", va);
+    } else {
+        printf("FAIL:    VMMDLL_ProcessGetModuleBase\n");
+        return 1;
+    }
+
+
+    // GetProcAddress from ntoskrnl.exe
+    printf("------------------------------------------------------------\n");
+    printf("#18: get proc address for ntoskrnl.exe!KeGetCurrentIrql     \n");
+    ShowKeyPress();
+    printf("CALL:    VMMDLL_ProcessGetProcAddress\n");
+    va = VMMDLL_ProcessGetProcAddress(4, "ntoskrnl.exe", "KeGetCurrentIrql");
+    if(va) {
+        printf("SUCCESS: VMMDLL_ProcessGetProcAddress\n");
+        printf("         %s!%s = %016llx\n", "ntoskrnl.exe", "KeGetCurrentIrql", va);
+    } else {
+        printf("FAIL:    VMMDLL_ProcessGetProcAddress\n");
+        return 1;
+    }
+
+
+    // Get EAT Thunk from ntoskrnl.exe!KeGetCurrentIrql
+    printf("------------------------------------------------------------\n");
+    printf("#19: Address of EAT thunk for ntoskrnl.exe!KeGetCurrentIrql \n");
+    ShowKeyPress();
+    VMMDLL_WIN_THUNKINFO_EAT oThunkInfoEAT;
+    ZeroMemory(&oThunkInfoEAT, sizeof(VMMDLL_WIN_THUNKINFO_EAT));
+    printf("CALL:    VMMDLL_WinGetThunkInfoEAT\n");
+    result = VMMDLL_WinGetThunkInfoEAT(4, "ntoskrnl.exe", "KeGetCurrentIrql", &oThunkInfoEAT);
+    if(result) {
+        printf("SUCCESS: VMMDLL_WinGetThunkInfoEAT\n");
+        printf("         vaFunction:     %016llx\n", oThunkInfoEAT.vaFunction);
+        printf("         vaThunk:        %016llx\n", oThunkInfoEAT.vaThunk);
+        printf("         valueThunk:             %08x\n", oThunkInfoEAT.valueThunk);
+        printf("         vaNameFunc:     %016llx\n", oThunkInfoEAT.vaNameFunction);
+    } else {
+        printf("FAIL:    VMMDLL_WinGetThunkInfoEAT\n");
+        return 1;
+    }
+
+
+    // Get IAT Thunk ntoskrnl.exe -> hal.dll!HalSendNMI
+    printf("------------------------------------------------------------\n");
+    printf("#20: Address of IAT thunk for hal.dll!HalSendNMI in ntoskrnl\n");
+    ShowKeyPress();
+    VMMDLL_WIN_THUNKINFO_IAT oThunkInfoIAT;
+    ZeroMemory(&oThunkInfoIAT, sizeof(VMMDLL_WIN_THUNKINFO_IAT));
+    printf("CALL:    VMMDLL_WinGetThunkInfoIAT\n");
+    result = VMMDLL_WinGetThunkInfoIAT(4, "ntoskrnl.Exe", "hal.Dll", "HalSendNMI", &oThunkInfoIAT);
+    if(result) {
+        printf("SUCCESS: VMMDLL_WinGetThunkInfoIAT\n");
+        printf("         vaFunction:     %016llx\n", oThunkInfoIAT.vaFunction);
+        printf("         vaThunk:        %016llx\n", oThunkInfoIAT.vaThunk);
+        printf("         vaNameFunction: %016llx\n", oThunkInfoIAT.vaNameFunction);
+        printf("         vaNameModule:   %016llx\n", oThunkInfoIAT.vaNameModule);
+    }
+    else {
+        printf("FAIL:    VMMDLL_WinGetThunkInfoEAT\n");
+        return 1;
+    }
+
 
 
     // Finish everything and exit!

@@ -2,9 +2,10 @@
 // for the memory process file system. NB! this is a special plugin since it's
 // not residing in the plugin directory.
 //
-// (c) Ulf Frisk, 2018
+// (c) Ulf Frisk, 2018-2019
 // Author: Ulf Frisk, pcileech@frizk.net
 //
+#define Py_LIMITED_API 0x03060000
 #ifdef _DEBUG
 #undef _DEBUG
 #include <python.h>
@@ -71,6 +72,7 @@ BOOL PY2C_Callback_List(_In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Inout_ PHANDLE pFileLi
     BOOL result = FALSE;
     PyObject *args, *pyList = NULL, *pyDict, *pyPid;
     PyObject *pyDict_Name, *pyDict_Size, *pyDict_IsDir;
+    PyObject *pyDict_Name_Bytes;
     PyGILState_STATE gstate;
     SIZE_T i, cList;
     CHAR szPathBuffer[MAX_PATH];
@@ -97,11 +99,15 @@ BOOL PY2C_Callback_List(_In_ PVMMDLL_PLUGIN_CONTEXT ctx, _Inout_ PHANDLE pFileLi
         pyDict_Size = PyDict_GetItemString(pyDict, "size");
         pyDict_IsDir = PyDict_GetItemString(pyDict, "f_isdir");
         if(!pyDict_Name || !PyUnicode_Check(pyDict_Name) || !pyDict_IsDir || !PyBool_Check(pyDict_IsDir)) { continue; }
-        if(pyDict_IsDir == Py_True) {
-            VMMDLL_VfsList_AddDirectory(pFileList, PyUnicode_AsUTF8AndSize(pyDict_Name, NULL));
-        } else {
-            if(!pyDict_Size || !PyLong_Check(pyDict_Size)) { continue; }
-            VMMDLL_VfsList_AddFile(pFileList, PyUnicode_AsUTF8AndSize(pyDict_Name, NULL), PyLong_AsUnsignedLongLong(pyDict_Size));
+        pyDict_Name_Bytes = PyUnicode_AsEncodedString(pyDict_Name, NULL, NULL);
+        if(pyDict_Name_Bytes) {
+            if(pyDict_IsDir == Py_True) {
+                VMMDLL_VfsList_AddDirectory(pFileList, PyBytes_AsString(pyDict_Name_Bytes));
+            } else {
+                if(!pyDict_Size || !PyLong_Check(pyDict_Size)) { continue; }
+                VMMDLL_VfsList_AddFile(pFileList, PyBytes_AsString(pyDict_Name_Bytes), PyLong_AsUnsignedLongLong(pyDict_Size));
+            }
+            Py_DECREF(pyDict_Name_Bytes);
         }
     }
     result = TRUE;
@@ -155,9 +161,9 @@ NTSTATUS PY2C_Callback_Write(_In_ PVMMDLL_PLUGIN_CONTEXT ctx, _In_ LPVOID pb, _I
     PyObject *args, *pyLong = NULL, *pyPid;
     PyGILState_STATE gstate;
     CHAR szPathBuffer[MAX_PATH];
-    if(!ctxPY2C->fInitialized) { return FALSE; }
-    if(!PY2C_Util_TranslatePathDelimiter(szPathBuffer, ctx->szPath)) { return FALSE; }
     *pcbWrite = 0;
+    if(!ctxPY2C->fInitialized) { return VMMDLL_STATUS_FILE_INVALID; }
+    if(!PY2C_Util_TranslatePathDelimiter(szPathBuffer, ctx->szPath)) { return VMMDLL_STATUS_FILE_INVALID; }
     gstate = PyGILState_Ensure();
     // pyPid is "consumed" by Py_BuildValue and does not need to be Py_DECREF'ed.
     if(ctx->dwPID == (DWORD)-1) {
@@ -185,7 +191,7 @@ fail:
     return nt;
 }
 
-VOID PY2C_Callback_Notify(_Inout_opt_ PHANDLE phModulePrivate, _In_ DWORD fEvent, _In_opt_ PVOID pvEvent, _In_opt_ DWORD cbEvent)
+VOID PY2C_Callback_Notify(_In_ DWORD fEvent, _In_opt_ PVOID pvEvent, _In_opt_ DWORD cbEvent)
 {
     PyObject *args, *pyResult = NULL;
     PyGILState_STATE gstate;
@@ -279,12 +285,16 @@ VOID VmmPyPlugin_UpdateVerbosity()
 	}
 }
 
-#define PYTHON_PATH_MAX             4*MAX_PATH
+#define PYTHON_PATH_MAX             7*MAX_PATH
 #define PYTHON_PATH_DELIMITER       L";"
 BOOL VmmPyPlugin_PythonInitialize(_In_ HMODULE hDllPython)
 {
     PyObject *pName = NULL, *pModule = NULL;
     WCHAR wszPathBaseExe[MAX_PATH], wszPathBasePython[MAX_PATH], wszPathPython[PYTHON_PATH_MAX];
+    WCHAR wszPythonLib[] = { L'p', L'y', L't', L'h', L'o', L'n', L'3', L'6', L'.', L'z', L'i', L'p', 0 };
+    // 0: fixup python zip version
+    wszPythonLib[6] = (WCHAR)Py_GetVersion()[0];
+    wszPythonLib[7] = (WCHAR)Py_GetVersion()[2];
     // 1: Allocate context (if required) and fetch verbosity settings
     if(!ctxPY2C && !(ctxPY2C = LocalAlloc(LMEM_ZEROINIT, sizeof(PY2C_CONTEXT)))) {
         return FALSE;
@@ -298,15 +308,27 @@ BOOL VmmPyPlugin_PythonInitialize(_In_ HMODULE hDllPython)
     // 2.2: python zip
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, PYTHON_PATH_DELIMITER);
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPathBasePython);
-    wcscat_s(wszPathPython, PYTHON_PATH_MAX, L"python36.zip");
-    // 2.3:  python lib
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPythonLib);
+    // 2.3:  python dlls
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, PYTHON_PATH_DELIMITER);
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPathBasePython);
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, L"DLLs\\");
+    // 2.4:  python lib
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, PYTHON_PATH_DELIMITER);
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPathBasePython);
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, L"Lib\\");
-    // 2.4: .exe location of this process
+    // 2.5:  python lib\site-packages (python pip)
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, PYTHON_PATH_DELIMITER);
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPathBasePython);
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, L"Lib\\site-packages\\");
+    // 2.6: .exe location of this process
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, PYTHON_PATH_DELIMITER);
     wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPathBaseExe);
-    // 3: Initialize Embedded Python.
+    // 2.7: pylib relative to this process
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, PYTHON_PATH_DELIMITER);
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, wszPathBaseExe);
+    wcscat_s(wszPathPython, PYTHON_PATH_MAX, L"pylib\\");
+    // 3: Initialize (Embedded) Python.
     Py_SetProgramName(L"VmmPyPluginManager");
     Py_SetPath(wszPathPython);
     if(ctxPY2C->fVerboseExtra) {
@@ -314,6 +336,7 @@ BOOL VmmPyPlugin_PythonInitialize(_In_ HMODULE hDllPython)
     }
     PY2C_InitializeModuleVMMPYCC();
     Py_Initialize();
+    PyEval_InitThreads();
     // 4: Import VmmPyPlugin library/file to start the python part of the plugin manager.
     pName = PyUnicode_DecodeFSDefault("vmmpyplugin");
     if(!pName) { goto fail; }
@@ -322,6 +345,7 @@ BOOL VmmPyPlugin_PythonInitialize(_In_ HMODULE hDllPython)
     // 5: Cleanups
     Py_DECREF(pName);
     Py_DECREF(pModule);
+    PyEval_ReleaseLock();
     return TRUE;
 fail:
     if(pName) { Py_DECREF(pName); }
@@ -330,7 +354,7 @@ fail:
     return FALSE;
 }
 
-VOID PYTHON_Close(_Inout_ PHANDLE phModulePrivate)
+VOID PYTHON_Close()
 {
     PY2C_Callback_Close();
     Py_FinalizeEx();
@@ -349,7 +373,7 @@ __declspec(dllexport)
 VOID InitializeVmmPlugin(_In_ PVMMDLL_PLUGIN_REGINFO pRegInfo)
 {
     if((pRegInfo->magic != VMMDLL_PLUGIN_REGINFO_MAGIC) || (pRegInfo->wVersion != VMMDLL_PLUGIN_REGINFO_VERSION)) { return; }
-    if(VmmPyPlugin_PythonInitialize(pRegInfo->hReservedDll)) {
+    if(VmmPyPlugin_PythonInitialize(pRegInfo->hReservedDllPython3X)) {
         strcpy_s(pRegInfo->reg_info.szModuleName, 32, "py");    // module name - 'py'.
         pRegInfo->reg_info.fRootModule = TRUE;                  // module shows in root directory.
         pRegInfo->reg_info.fProcessModule = TRUE;               // module shows in process directory.
@@ -357,7 +381,7 @@ VOID InitializeVmmPlugin(_In_ PVMMDLL_PLUGIN_REGINFO pRegInfo)
         pRegInfo->reg_fn.pfnRead = PY2C_Callback_Read;          // Read function supported.
         pRegInfo->reg_fn.pfnWrite = PY2C_Callback_Write;        // Write function supported.
         pRegInfo->reg_fn.pfnNotify = PY2C_Callback_Notify;      // Notify function supported.
-        pRegInfo->reg_fn.pfnCloseHandleModule = PYTHON_Close;   // Close module handle.
+        pRegInfo->reg_fn.pfnClose = PYTHON_Close;               // Close module handle.
         pRegInfo->pfnPluginManager_Register(pRegInfo);          // Register with the plugin maanger.
     }
 }

@@ -18,6 +18,8 @@
 # (c) Ulf Frisk, 2018
 # Author: Ulf Frisk, pcileech@frizk.net
 #
+# Header Version: 2.4
+#
 
 from vmmpy import *
 from vmmpycc import *
@@ -120,12 +122,12 @@ def VmmPyPlugin_InternalCallback_List(pid, path):
     For a given path return list of dicts containing info for each entry.
 
     Keyword arguments:
-    pid -- int: the pid (or None if root).
+    pid -- int: the pid (or None/False if root).
     path -- str: the path to retrieve.
     return -- list of dict containing the information.
     """
     try:
-        dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None) else VmmPyPlugin_RootDirectoryProcess
+        dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None or pid == False) else VmmPyPlugin_RootDirectoryProcess
         path_items = list(filter(None, path.split('/')))
         for e in path_items:
             if not e in dir_entry:
@@ -158,7 +160,7 @@ def VmmPyPlugin_InternalCallback_Read(pid, path, bytes_length, bytes_offset):
     Read bytes from a given path/file.
 
     Keyword arguments:
-    pid -- int: process identifier (PID), None for root.
+    pid -- int: process identifier (PID), None/False for root.
     path -- str: the path/file to read.
     bytes_length -- int: number of bytes to read.
     bytes_offset -- int: offset of bytes to read.
@@ -185,7 +187,7 @@ def VmmPyPlugin_InternalCallback_Write(pid, path, bytes_data, bytes_offset):
     Write bytes to a given path/file.
 
     Keyword arguments:
-    pid -- int: process identifier (PID), None for root.
+    pid -- int: process identifier (PID), None/False for root.
     path -- str: the path/file to write.
     bytes_data -- bytes: the bytes to write.
     bytes_offset -- int: offset of bytes to write.
@@ -234,6 +236,9 @@ def VmmPyPlugin_InternalCallback_Notify(fEvent, bytesData):
     """
     if fEvent == VMMPY_PLUGIN_EVENT_VERBOSITYCHANGE:
         VmmPyPlugin_InternalSetVerbosity()
+    for module in VmmPyPlugin_PluginModules:
+        if hasattr(module, 'Notify'):
+            module.Notify(fEvent, bytesData)
 
 
 
@@ -251,14 +256,14 @@ def VmmPyPlugin_FileRegister(pid, path, size, fn_read_callback, fn_write_callbac
     NB! Required directories are automatically created if possible.
 
     Keyword arguments:
-    pid -- int: process identifier (PID), None for root.
+    pid -- int: process identifier (PID), None/False for root.
     path -- str: the path including the file name to register.
     size -- the file size.
     fn_read_callback = callback function for read operation.
     fn_write_callback = callback function for write operation.
     is_overwrite -- overwrise allowed?
     """
-    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None) else VmmPyPlugin_RootDirectoryProcess
+    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None or pid == False) else VmmPyPlugin_RootDirectoryProcess
     path_items = list(filter(None, path.split('/')))
     file = path_items.pop()
     for path_item in path_items:
@@ -278,12 +283,12 @@ def VmmPyPlugin_FileRegisterDirectory(pid, path, fn_list_callback = None, is_ove
     NB! Required directories are automatically created if possible.
 
     Keyword arguments:
-    pid -- int: process identifier (PID), None for root.
+    pid -- int: process identifier (PID), None/False for root.
     path -- the path including the file name to register.
     fn_list_callback = callback function for dynamic directory listing.
     is_overwrite -- overwrise allowed?
     """
-    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None) else VmmPyPlugin_RootDirectoryProcess
+    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None or pid == False) else VmmPyPlugin_RootDirectoryProcess
     path_items = list(filter(None, path.split('/')))
     dir_to_reg = path_items.pop()
     for path_item in path_items:
@@ -302,10 +307,10 @@ def VmmPyPlugin_FileUnregister(pid, path):
     """Unregister a directory or file from the file listing database.
 
     Keyword arguments:
-    pid -- int: process identifier (PID), None for root.
+    pid -- int: process identifier (PID), None/False for root.
     path -- str: the path including the file name to register.
     """
-    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None) else VmmPyPlugin_RootDirectoryProcess
+    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None or pid == False) else VmmPyPlugin_RootDirectoryProcess
     path_items = list(filter(None, path.split('/')))
     entry = path_items.pop()
     for path_item in path_items:
@@ -322,12 +327,12 @@ def VmmPyPlugin_FileRetrieve(pid, path):
     """Retrieve a file from the file listing database.
 
     Keyword arguments:
-    pid -- int: process identifier (PID), None for root.
+    pid -- int: process identifier (PID), None/False for root.
     path -- str: the path including the file name to register.
     pid -- int: process identifier (optional) to be forwarded to any dynamic list functions.
     return -- tuple: <str name, dict values>.
     """
-    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None) else VmmPyPlugin_RootDirectoryProcess
+    dir_entry = VmmPyPlugin_RootDirectoryRoot if (pid == None or pid == False) else VmmPyPlugin_RootDirectoryProcess
     path_items = list(filter(None, path.split('/')))
     entry = path_items.pop()
     dir_path = '/'.join(path_items)
@@ -336,6 +341,7 @@ def VmmPyPlugin_FileRetrieve(pid, path):
             raise RuntimeError('VmmPyPlugin_FileRetrieve: not found.')
         if dir_entry[path_item]['list'] != None:
             dir_entry = dir_entry[path_item]['list'](pid, dir_path)
+            break
         else:
             dir_entry = dir_entry[path_item]['dirs']
     if entry in dir_entry:
@@ -352,4 +358,3 @@ try:
     VmmPyPlugin_InternalInitialize()
 except Exception as e:
     print(str(e))
-

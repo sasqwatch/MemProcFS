@@ -39,15 +39,16 @@ def VmmPy_Example(dump_file_name):
     print("Welcome to the VmmPy Example showcase / test cases. This will demo  ")
     print("how it is possible to use VmmPy to access memory dump files in a    ")
     print("convenient way. Please ensure that the VmmPy requirements about the ")
-    print("python version (such as Python 3.6) is met before starting ...      ")
+    print("python version (64-bit Python Windows version 3.6 or later) is met  ")
+    print("before starting ...                                                 ")
 
     # INIITALIZE
     print("--------------------------------------------------------------------")
     print("Initialize VmmPy with the dump file specified.                      ")
     input("Press Enter to continue...")
-    print("CALL: VmmPy_InitializeFile()")
-    VmmPy_InitializeFile(dump_file_name)
-    print("SUCCESS: VmmPy_InitializeFile()")
+    print("CALL: VmmPy_Initialize()")
+    VmmPy_Initialize(["-device", dump_file_name])
+    print("SUCCESS: VmmPy_Initialize()")
 
     # GET CONFIG
     print("--------------------------------------------------------------------")
